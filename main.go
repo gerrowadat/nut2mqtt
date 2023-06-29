@@ -2,6 +2,7 @@ package main
 
 import (
   "fmt"
+  "log"
 )
 
 func main() {
@@ -9,6 +10,14 @@ func main() {
 
   ups := getUPSNames("localhost", 3493)
 
-  fmt.Printf(ups)
+  for _, u := range ups {
+    fmt.Printf("Found UPS: %v (%v)\n", u.name, u.description)
+  }
 
+}
+
+func checkErrFatal(err error) {
+  if err != nil {
+    log.Fatal(err)
+  }
 }
