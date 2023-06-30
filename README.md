@@ -1,7 +1,7 @@
 # nut2mqtt
 Shunt NUT server (UPS) info to MQTT 
 
-NOTE: This software is pre-alpha, I'm still getting even the basis working.
+NOTE: This software is pre-alpha, I'm still getting even the basics working.
 
 Usage
 =====
@@ -21,6 +21,6 @@ Use `--mqtt_topic_base` to specify where in the mqtt namespace all this goes. We
 
 ```
 base/lastupdate = &lt;timestamp&gt;
-base/upsname/battery.charge = 100
+base/upsname/battery/charge = 100
 base/upsname/... = etc...
 ```
