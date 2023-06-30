@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 )
 
 func main() {
@@ -27,16 +29,31 @@ func main() {
 
 	mqtt_client.topic_base = *mqtt_topic_base
 
-	// Publish test message
-	err = mqtt_client.publishMessage("test", "Testing and so forth.")
-	checkErrFatal(err)
-
 	// Get the list of UPSes from upsd
 	ups := getUPSNames(upsd_host, upsd_port)
 	for _, u := range ups {
 		fmt.Printf("Found UPS: %v (%v)\n", u.name, u.description)
 	}
 
+	for {
+		// Update mqtt
+		for _, u := range ups {
+			new_vars, err := getUpsVars(upsd_host, upsd_port, u)
+			checkErrFatal(err)
+			for k, v := range new_vars {
+				old_v, present := u.vars[k]
+				if !present || old_v != v {
+					topic := u.name + "/" + k
+					// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
+					topic = strings.Replace(topic, ".", "/", -1)
+					err = mqtt_client.publishMessage(topic, v)
+					checkErrFatal(err)
+				}
+			}
+			u.vars = new_vars
+		}
+		time.Sleep(30 * time.Second)
+	}
 }
 
 func checkErrFatal(err error) {
