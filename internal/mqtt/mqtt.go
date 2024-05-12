@@ -1,8 +1,9 @@
-package main
+package mqtt
 
 import (
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"log"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type mqttClient struct {
@@ -10,7 +11,7 @@ type mqttClient struct {
 	topic_base string
 }
 
-func mqttClientNew(mqtt_url string, user *string, pass *string) (mqttClient, error) {
+func NewMQTTClient(mqtt_url string, user *string, pass *string) (mqttClient, error) {
 
 	ret := mqttClient{}
 
@@ -31,7 +32,11 @@ func mqttClientNew(mqtt_url string, user *string, pass *string) (mqttClient, err
 	return ret, nil
 }
 
-func (c *mqttClient) publishMessage(topic string, content string) error {
+func (c *mqttClient) SetTopicBase(topic_base string) {
+	c.topic_base = topic_base
+}
+
+func (c *mqttClient) PublishMessage(topic string, content string) error {
 	log.Print("Publish: " + c.topic_base + topic + " => " + content)
 	pub_tok := c.c.Publish(c.topic_base+topic, 0, false, content)
 	pub_tok.Wait()

@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	mqtt "github.com/gerrowadat/nut2mqtt/internal/mqtt"
+	upsc "github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
 
 func main() {
@@ -18,41 +21,41 @@ func main() {
 	mqtt_password := os.Getenv("MQTT_PASSWORD")
 
 	mqtt_topic_base := flag.String("mqtt_topic_base", "nut/", "base topic for MQTT messages")
+	upsd_poll_interval := flag.Int("upsd_poll_interval", 30, "interval between upsd polls")
 
 	flag.Parse()
 
+	// Get the list of UPSes from upsd
+	upsd_c := upsc.NewUPSDClient(*upsd_host, *upsd_port)
+	upses, err := upsc.GetUPSes(upsd_c)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Connect to mqtt
 	mqtt_url := fmt.Sprintf("tcp://%s:%d", *mqtt_host, *mqtt_port)
-	mqtt_client, err := mqttClientNew(mqtt_url, mqtt_user, &mqtt_password)
+	mqtt_client, err := mqtt.NewMQTTClient(mqtt_url, mqtt_user, &mqtt_password)
+	if err != nil {
+		log.Fatal("MQTT fatal error: ", err)
+	}
 	checkErrFatal(err)
 	defer mqtt_client.Disconnect(250)
-
-	mqtt_client.topic_base = *mqtt_topic_base
-
-	// Get the list of UPSes from upsd
-	ups := getUPSNames(upsd_host, upsd_port)
-	for _, u := range ups {
-		fmt.Printf("Found UPS: %v (%v)\n", u.name, u.description)
-	}
+	mqtt_client.SetTopicBase(*mqtt_topic_base)
 
 	for {
 		// Update mqtt
-		for _, u := range ups {
-			new_vars, err := getUpsVars(upsd_host, upsd_port, u)
+		for _, u := range upses {
+			updated_vars, err := upsc.GetUpdatedVars(upsd_c, u)
 			checkErrFatal(err)
-			for k, v := range new_vars {
-				old_v, present := u.vars[k]
-				if !present || old_v != v {
-					topic := u.name + "/" + k
-					// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
-					topic = strings.Replace(topic, ".", "/", -1)
-					err = mqtt_client.publishMessage(topic, v)
-					checkErrFatal(err)
-				}
+			for k, v := range updated_vars {
+				topic := u.Name() + "/" + k
+				// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
+				topic = strings.Replace(topic, ".", "/", -1)
+				err = mqtt_client.PublishMessage(topic, v)
+				checkErrFatal(err)
 			}
-			u.vars = new_vars
 		}
-		time.Sleep(30 * time.Second)
+		time.Sleep(time.Duration(*upsd_poll_interval) * time.Second)
 	}
 }
 
