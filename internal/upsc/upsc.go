@@ -49,6 +49,10 @@ func processUpsdResponse(response string, cmd string) (map[string]string, error)
 	if len(replines) > 0 && replines[len(replines)-1] == "" {
 		replines = replines[:len(replines)-1]
 	}
+	if len(replines) == 0 {
+		// No response is fine.
+		return ret, nil
+	}
 	if strings.HasPrefix(cmd, "LIST") {
 		// rfc9271 4.2.7 "All the LIST commands had fucking better produce a response with a common format."
 		// (I'm paraphrasing here)
