@@ -10,6 +10,12 @@ import (
 	"strings"
 )
 
+type UPSDClientIf interface {
+	Request(cmd string) (string, error)
+	Host() string
+	Port() int
+}
+
 type UPSDClient struct {
 	host string
 	port int
@@ -17,6 +23,18 @@ type UPSDClient struct {
 
 func NewUPSDClient(host string, port int) *UPSDClient {
 	return &UPSDClient{host: host, port: port}
+}
+
+func (upsd_c *UPSDClient) Request(cmd string) (string, error) {
+	return rawUpsdCommand(upsd_c, cmd)
+}
+
+func (upsd_c *UPSDClient) Host() string {
+	return upsd_c.host
+}
+
+func (upsd_c *UPSDClient) Port() int {
+	return upsd_c.port
 }
 
 type UPSInfo struct {
@@ -29,10 +47,11 @@ func (u *UPSInfo) Name() string {
 	return u.name
 }
 
-func UpsdCommand(upsd_c *UPSDClient, cmd string) (map[string]string, error) {
+func UpsdCommand(upsd_c UPSDClientIf, cmd string) (map[string]string, error) {
 	// Get raw output from upsd if we know how to parse it.
 	if strings.HasPrefix(cmd, "LIST") || strings.HasPrefix(cmd, "GET") {
-		raw, err := rawUpsdCommand(upsd_c, cmd)
+		//raw, err := rawUpsdCommand(upsd_c, cmd)
+		raw, err := upsd_c.Request(cmd)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +138,7 @@ func getKeyValueFromListLine(line string) (string, string, error) {
 
 }
 
-func GetUPSes(upsd_c *UPSDClient) ([]*UPSInfo, error) {
+func GetUPSes(upsd_c UPSDClientIf) ([]*UPSInfo, error) {
 	// Get the list of UPSes from upsd
 	upses := []*UPSInfo{}
 	upslist, err := UpsdCommand(upsd_c, "LIST UPS")
@@ -133,7 +152,7 @@ func GetUPSes(upsd_c *UPSDClient) ([]*UPSInfo, error) {
 	return upses, nil
 }
 
-func GetUpdatedVars(upsd_c *UPSDClient, u *UPSInfo) (map[string]string, error) {
+func GetUpdatedVars(upsd_c UPSDClientIf, u *UPSInfo) (map[string]string, error) {
 	// Fetch updated vars for this UPS and both update the struct in place and return the new values.
 	ret := map[string]string{}
 	new_vars, err := UpsdCommand(upsd_c, "LIST VAR "+u.Name())
@@ -148,12 +167,20 @@ func GetUpdatedVars(upsd_c *UPSDClient, u *UPSInfo) (map[string]string, error) {
 			u.vars[k] = v
 		}
 	}
+	for k := range u.vars {
+		_, present := new_vars[k]
+		if !present {
+			// variable is no longer present
+			ret[k] = ""
+			delete(u.vars, k)
+		}
+	}
 	return ret, nil
 }
 
 // Issue a raw command to upsd and return the output.
-func rawUpsdCommand(upsd_c *UPSDClient, cmd string) (rep string, err error) {
-	addr := upsd_c.host + ":" + strconv.Itoa(upsd_c.port)
+func rawUpsdCommand(upsd_c UPSDClientIf, cmd string) (rep string, err error) {
+	addr := upsd_c.Host() + ":" + strconv.Itoa(upsd_c.Port())
 	c, err := net.Dial("tcp", addr)
 
 	if err != nil {
