@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
+	"sync"
 	"time"
 
 	mqtt "github.com/gerrowadat/nut2mqtt/internal/mqtt"
@@ -27,10 +27,6 @@ func main() {
 
 	// Get the list of UPSes from upsd
 	upsd_c := upsc.NewUPSDClient(*upsd_host, *upsd_port)
-	upses, err := upsc.GetUPSes(upsd_c)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	// Connect to mqtt
 	mqtt_url := fmt.Sprintf("tcp://%s:%d", *mqtt_host, *mqtt_port)
@@ -42,21 +38,19 @@ func main() {
 	defer mqtt_client.Disconnect(250)
 	mqtt_client.SetTopicBase(*mqtt_topic_base)
 
-	for {
-		// Update mqtt
-		for _, u := range upses {
-			updated_vars, err := upsc.GetUpdatedVars(upsd_c, u)
-			checkErrFatal(err)
-			for k, v := range updated_vars {
-				topic := u.Name() + "/" + k
-				// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
-				topic = strings.Replace(topic, ".", "/", -1)
-				err = mqtt_client.PublishMessage(topic, v)
-				checkErrFatal(err)
-			}
-		}
-		time.Sleep(time.Duration(*upsd_poll_interval) * time.Second)
-	}
+	// Start the upsd polling
+	ups_chan := make(chan *upsc.UPSInfo)
+	mqtt_change_chan := make(chan *mqtt.MQTTUpdate)
+
+	var wg sync.WaitGroup
+
+	wg.Add(3)
+
+	go upsd_c.WatchForUPSes(time.Duration(*upsd_poll_interval), ups_chan, &wg)
+	go mqtt_client.ChannelUpdates(ups_chan, mqtt_change_chan, &wg)
+	go mqtt_client.ConsumeChannelUpdates(mqtt_change_chan, &wg)
+
+	wg.Wait()
 }
 
 func checkErrFatal(err error) {

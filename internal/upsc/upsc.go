@@ -8,6 +8,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 type UPSDClientIf interface {
@@ -37,6 +39,23 @@ func (upsd_c *UPSDClient) Port() int {
 	return upsd_c.port
 }
 
+func (upsd_c *UPSDClient) WatchForUPSes(poll_interval time.Duration, next chan *UPSInfo, wg *sync.WaitGroup) {
+	// Check the list of UPses and emit each one on the channel for checking.
+	defer wg.Done()
+	log.Printf("Watching for UPSes on %v:%v\n", upsd_c.Host(), upsd_c.Port())
+	for {
+		upses, err := GetUPSes(upsd_c)
+		if err != nil {
+			log.Fatalf("Error getting UPSes: %v\n", err)
+		}
+		for _, u := range upses {
+			GetUpdatedVars(upsd_c, u)
+			next <- u
+		}
+		time.Sleep(poll_interval * time.Second)
+	}
+}
+
 type UPSInfo struct {
 	name        string
 	description string
@@ -45,6 +64,14 @@ type UPSInfo struct {
 
 func (u *UPSInfo) Name() string {
 	return u.name
+}
+
+func (u *UPSInfo) Description() string {
+	return u.description
+}
+
+func (u *UPSInfo) Vars() map[string]string {
+	return u.vars
 }
 
 func UpsdCommand(upsd_c UPSDClientIf, cmd string) (map[string]string, error) {
@@ -146,7 +173,6 @@ func GetUPSes(upsd_c UPSDClientIf) ([]*UPSInfo, error) {
 		return nil, err
 	}
 	for k, v := range upslist {
-		log.Printf("Found UPS: %v (%v)\n", k, v)
 		upses = append(upses, &UPSInfo{name: k, description: v, vars: make(map[string]string)})
 	}
 	return upses, nil
@@ -176,6 +202,18 @@ func GetUpdatedVars(upsd_c UPSDClientIf, u *UPSInfo) (map[string]string, error) 
 		}
 	}
 	return ret, nil
+}
+
+func GetVarDiff(old *UPSInfo, new *UPSInfo) map[string]string {
+	// Compare two UPSInfo structs and return a map of new or changed variables.
+	ret := map[string]string{}
+	for k, v := range new.vars {
+		old_v, present := old.vars[k]
+		if !present || old_v != v {
+			ret[k] = v
+		}
+	}
+	return ret
 }
 
 // Issue a raw command to upsd and return the output.
