@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
+	control "github.com/gerrowadat/nut2mqtt/internal/control"
 	"github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
 
@@ -43,8 +45,8 @@ func (c *mqttClient) GetTopicBase() string {
 	return c.topic_base
 }
 
-func (c *mqttClient) PublishMessage(msg *MQTTUpdate) error {
-	pub_tok := c.c.Publish(c.topic_base+msg.topic, 0, false, msg.content)
+func (c *mqttClient) PublishMessage(msg *channels.MQTTUpdate) error {
+	pub_tok := c.c.Publish(c.topic_base+msg.Topic, 0, false, msg.Content)
 	pub_tok.Wait()
 
 	if pub_tok.Error() != nil {
@@ -57,50 +59,43 @@ func (c *mqttClient) Disconnect(code uint) {
 	c.c.Disconnect(code)
 }
 
-// A struct to describe an MQTT update to be made.
-type MQTTUpdate struct {
-	topic       string
-	content     string
-	old_content string
-}
-
-func (c *mqttClient) ChannelUpdates(ups_chan chan *upsc.UPSInfo, change_chan chan *MQTTUpdate, wg *sync.WaitGroup) {
+func (c *mqttClient) UpdateProducer(controller *control.Controller, ups_chan chan *channels.UPSInfo, change_chan chan *channels.MQTTUpdate, wg *sync.WaitGroup) {
 	defer wg.Done()
-	last_ups := map[string]*upsc.UPSInfo{}
+	last_ups := map[string]*channels.UPSInfo{}
 	for {
 		ups := <-ups_chan
-		old, present := last_ups[ups.Name()]
+		old, present := last_ups[ups.Name]
 		if present {
 			changed_vars := upsc.GetVarDiff(old, ups)
 			if len(changed_vars) > 0 {
 				for k, v := range changed_vars {
-					topic := ups.Name() + "/" + k
+					topic := ups.Name + "/" + k
 					// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
 					topic = strings.Replace(topic, ".", "/", -1)
-					change_chan <- &MQTTUpdate{topic, v, old.Vars()[k]}
+					change_chan <- &channels.MQTTUpdate{Topic: topic, Content: v, OldContent: old.Vars[k]}
 				}
 			}
 		} else {
-			for k, v := range ups.Vars() {
-				topic := ups.Name() + "/" + k
+			for k, v := range ups.Vars {
+				topic := ups.Name + "/" + k
 				// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
 				topic = strings.Replace(topic, ".", "/", -1)
-				change_chan <- &MQTTUpdate{topic, v, ""}
+				change_chan <- &channels.MQTTUpdate{Topic: topic, Content: v, OldContent: ""}
 			}
 		}
-		last_ups[ups.Name()] = ups
+		last_ups[ups.Name] = ups
 	}
 }
 
-func (c *mqttClient) ConsumeChannelUpdates(change_chan chan *MQTTUpdate, wg *sync.WaitGroup) {
+func (c *mqttClient) UpdateConsumer(controller *control.Controller, change_chan chan *channels.MQTTUpdate, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		update := <-change_chan
-		old := update.old_content
+		old := update.OldContent
 		if old == "" {
 			old = "[null]"
 		}
-		log.Printf("MQTT Change: [%v]\t%v -> %v ", c.GetTopicBase()+update.topic, old, update.content)
+		log.Printf("MQTT Change: [%v]\t%v -> %v ", c.GetTopicBase()+update.Topic, old, update.Content)
 		c.PublishMessage(update)
 	}
 }

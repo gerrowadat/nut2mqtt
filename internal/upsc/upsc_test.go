@@ -3,6 +3,8 @@ package upsc
 import (
 	"reflect"
 	"testing"
+
+	"github.com/gerrowadat/nut2mqtt/internal/channels"
 )
 
 var GetKeyValueFromListLine = getKeyValueFromListLine
@@ -197,19 +199,19 @@ func TestGetUPSes(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []*UPSInfo
+		want    []*channels.UPSInfo
 		wantErr bool
 	}{
 		{
 			name:    "NoUPSes",
 			args:    args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST UPS\nEND LIST UPS\n")},
-			want:    []*UPSInfo{},
+			want:    []*channels.UPSInfo{},
 			wantErr: false,
 		},
 		{
 			name:    "OneResponse",
 			args:    args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST UPS\nUPS myups \"description\"\nEND LIST UPS\n")},
-			want:    []*UPSInfo{{name: "myups", description: "description", vars: map[string]string{}}},
+			want:    []*channels.UPSInfo{{Name: "myups", Description: "description", Vars: map[string]string{}}},
 			wantErr: false,
 		},
 	}
@@ -230,7 +232,7 @@ func TestGetUPSes(t *testing.T) {
 func TestGetUpdatedVars(t *testing.T) {
 	type args struct {
 		upsd_c UPSDClientIf
-		u      *UPSInfo
+		u      *channels.UPSInfo
 	}
 	tests := []struct {
 		name    string
@@ -241,28 +243,28 @@ func TestGetUpdatedVars(t *testing.T) {
 		{
 			name: "NoChanges",
 			args: args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST VAR myups\nVAR myups stuff.things \"yokes\"\nEND LIST VAR myups"),
-				u: &UPSInfo{name: "myups", description: "description", vars: map[string]string{"stuff.things": "yokes"}}},
+				u: &channels.UPSInfo{Name: "myups", Description: "description", Vars: map[string]string{"stuff.things": "yokes"}}},
 			want:    map[string]string{},
 			wantErr: false,
 		},
 		{
 			name: "UpdateInPlace",
 			args: args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST VAR myups\nVAR myups stuff.things \"1\"\nEND LIST VAR myups"),
-				u: &UPSInfo{name: "myups", description: "description", vars: map[string]string{"stuff.things": "2"}}},
+				u: &channels.UPSInfo{Name: "myups", Description: "description", Vars: map[string]string{"stuff.things": "2"}}},
 			want:    map[string]string{"stuff.things": "1"},
 			wantErr: false,
 		},
 		{
 			name: "NewVarAppears",
 			args: args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST VAR myups\nVAR myups stuff.things \"1\"\nVAR myups yokes.etc \"2\"\nEND LIST VAR myups"),
-				u: &UPSInfo{name: "myups", description: "description", vars: map[string]string{"stuff.things": "1"}}},
+				u: &channels.UPSInfo{Name: "myups", Description: "description", Vars: map[string]string{"stuff.things": "1"}}},
 			want:    map[string]string{"yokes.etc": "2"},
 			wantErr: false,
 		},
 		{
 			name: "OldVarDisppears",
 			args: args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST VAR myups\nVAR myups stuff.things \"1\"\nEND LIST VAR myups"),
-				u: &UPSInfo{name: "myups", description: "description", vars: map[string]string{"stuff.things": "1", "yokes.etc": "2"}}},
+				u: &channels.UPSInfo{Name: "myups", Description: "description", Vars: map[string]string{"stuff.things": "1", "yokes.etc": "2"}}},
 			want:    map[string]string{"yokes.etc": ""},
 			wantErr: false,
 		},

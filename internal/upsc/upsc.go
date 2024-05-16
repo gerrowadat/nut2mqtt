@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
+	control "github.com/gerrowadat/nut2mqtt/internal/control"
 )
 
 type UPSDClientIf interface {
@@ -39,14 +42,14 @@ func (upsd_c *UPSDClient) Port() int {
 	return upsd_c.port
 }
 
-func (upsd_c *UPSDClient) WatchForUPSes(poll_interval time.Duration, next chan *UPSInfo, wg *sync.WaitGroup) {
+func (upsd_c *UPSDClient) UPSInfoProducer(c *control.Controller, wg *sync.WaitGroup, next chan *channels.UPSInfo, poll_interval time.Duration) {
 	// Check the list of UPses and emit each one on the channel for checking.
 	defer wg.Done()
 	log.Printf("Watching for UPSes on %v:%v\n", upsd_c.Host(), upsd_c.Port())
 	for {
 		upses, err := GetUPSes(upsd_c)
 		if err != nil {
-			log.Fatalf("Error getting UPSes: %v\n", err)
+			c.Shutdown("Error getting UPSes: %v", err)
 		}
 		for _, u := range upses {
 			GetUpdatedVars(upsd_c, u)
@@ -54,24 +57,6 @@ func (upsd_c *UPSDClient) WatchForUPSes(poll_interval time.Duration, next chan *
 		}
 		time.Sleep(poll_interval * time.Second)
 	}
-}
-
-type UPSInfo struct {
-	name        string
-	description string
-	vars        map[string]string
-}
-
-func (u *UPSInfo) Name() string {
-	return u.name
-}
-
-func (u *UPSInfo) Description() string {
-	return u.description
-}
-
-func (u *UPSInfo) Vars() map[string]string {
-	return u.vars
 }
 
 func UpsdCommand(upsd_c UPSDClientIf, cmd string) (map[string]string, error) {
@@ -165,50 +150,50 @@ func getKeyValueFromListLine(line string) (string, string, error) {
 
 }
 
-func GetUPSes(upsd_c UPSDClientIf) ([]*UPSInfo, error) {
+func GetUPSes(upsd_c UPSDClientIf) ([]*channels.UPSInfo, error) {
 	// Get the list of UPSes from upsd
-	upses := []*UPSInfo{}
+	upses := []*channels.UPSInfo{}
 	upslist, err := UpsdCommand(upsd_c, "LIST UPS")
 	if err != nil {
 		return nil, err
 	}
 	for k, v := range upslist {
-		upses = append(upses, &UPSInfo{name: k, description: v, vars: make(map[string]string)})
+		upses = append(upses, &channels.UPSInfo{Name: k, Description: v, Vars: make(map[string]string)})
 	}
 	return upses, nil
 }
 
-func GetUpdatedVars(upsd_c UPSDClientIf, u *UPSInfo) (map[string]string, error) {
+func GetUpdatedVars(upsd_c UPSDClientIf, u *channels.UPSInfo) (map[string]string, error) {
 	// Fetch updated vars for this UPS and both update the struct in place and return the new values.
 	ret := map[string]string{}
-	new_vars, err := UpsdCommand(upsd_c, "LIST VAR "+u.Name())
+	new_vars, err := UpsdCommand(upsd_c, "LIST VAR "+u.Name)
 	if err != nil {
 		return nil, err
 	}
 	for k, v := range new_vars {
-		old_v, present := u.vars[k]
+		old_v, present := u.Vars[k]
 		if !present || old_v != v {
 			// variable is new or changed
 			ret[k] = v
-			u.vars[k] = v
+			u.Vars[k] = v
 		}
 	}
-	for k := range u.vars {
+	for k := range u.Vars {
 		_, present := new_vars[k]
 		if !present {
 			// variable is no longer present
 			ret[k] = ""
-			delete(u.vars, k)
+			delete(u.Vars, k)
 		}
 	}
 	return ret, nil
 }
 
-func GetVarDiff(old *UPSInfo, new *UPSInfo) map[string]string {
+func GetVarDiff(old *channels.UPSInfo, new *channels.UPSInfo) map[string]string {
 	// Compare two UPSInfo structs and return a map of new or changed variables.
 	ret := map[string]string{}
-	for k, v := range new.vars {
-		old_v, present := old.vars[k]
+	for k, v := range new.Vars {
+		old_v, present := old.Vars[k]
 		if !present || old_v != v {
 			ret[k] = v
 		}
