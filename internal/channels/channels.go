@@ -6,16 +6,16 @@ import "fmt"
 
 // A control message for the overall process.
 type ControlMessage struct {
-	operation string
-	comment   string
+	Operation string
+	Comment   string
 }
 
 func (cm ControlMessage) String() string {
-	return fmt.Sprintf("Operation: %s, Comment: %s", cm.operation, cm.comment)
+	return fmt.Sprintf("Operation: %s, Comment: %s", cm.Operation, cm.Comment)
 }
 
 func NewControlMessage(operation string, comment string) *ControlMessage {
-	return &ControlMessage{operation: operation, comment: comment}
+	return &ControlMessage{Operation: operation, Comment: comment}
 }
 
 // MQTT
