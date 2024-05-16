@@ -18,14 +18,22 @@ func (cm ControlMessage) String() string {
 
 // A struct to describe an MQTT update to be made.
 type MQTTUpdate struct {
-	Topic      string
-	Content    string
+	// The full topic - note, --mqtt-topic-base is prepended to this.
+	Topic string
+	// The update content
+	Content string
+	// The previous version of the content, if we have it.
 	OldContent string
 }
 
 // UPS Info
 type UPSInfo struct {
-	Name        string
+	// Name of the UPS as configured in nut
+	Name string
+	// hostname of the connected machine
+	Host string
+	// Description, as returned by nut
 	Description string
-	Vars        map[string]string
+	// All variable returned by LIST VAR
+	Vars map[string]string
 }

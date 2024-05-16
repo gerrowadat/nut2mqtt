@@ -211,7 +211,7 @@ func TestGetUPSes(t *testing.T) {
 		{
 			name:    "OneResponse",
 			args:    args{upsd_c: NewUPSDMockClient("localhost", 3493, "BEGIN LIST UPS\nUPS myups \"description\"\nEND LIST UPS\n")},
-			want:    []*channels.UPSInfo{{Name: "myups", Description: "description", Vars: map[string]string{}}},
+			want:    []*channels.UPSInfo{{Name: "myups", Description: "description", Host: "localhost", Vars: map[string]string{}}},
 			wantErr: false,
 		},
 	}

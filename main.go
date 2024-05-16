@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	upsd_host := flag.String("upsd-host", "localhost", "address of upsd host")
+	upsd_hosts := flag.String("upsd-hosts", "localhost", "address of upsd host(s), comma-separated")
 	upsd_port := flag.Int("upsd-port", 3493, "port of upsd server")
 	mqtt_host := flag.String("mqtt-host", "localhost", "address of MQTT server")
 	mqtt_port := flag.Int("mqtt-prt", 1883, "port of mqtt server")
@@ -30,7 +30,7 @@ func main() {
 	flag.Parse()
 
 	// Get the list of UPSes from upsd
-	upsd_c := upsc.NewUPSDClient(*upsd_host, *upsd_port)
+	ups_hosts := upsc.NewUPSHosts(*upsd_hosts, *upsd_port)
 
 	// Connect to mqtt
 	mqtt_url := fmt.Sprintf("tcp://%s:%d", *mqtt_host, *mqtt_port)
@@ -55,7 +55,7 @@ func main() {
 	wg.Add(1)
 
 	go controller.ControlMessageConsumer(&wg)
-	go upsd_c.UPSInfoProducer(&controller, &wg, ups_chan, time.Duration(*upsd_poll_interval))
+	go ups_hosts.UPSInfoProducer(&controller, &wg, ups_chan, time.Duration(*upsd_poll_interval))
 	go mqtt_client.UpdateProducer(&controller, ups_chan, mqtt_change_chan, &wg)
 	go mqtt_client.UpdateConsumer(&controller, mqtt_change_chan, &wg)
 
