@@ -42,18 +42,48 @@ func (upsd_c *UPSDClient) Port() int {
 	return upsd_c.port
 }
 
-func (upsd_c *UPSDClient) UPSInfoProducer(c *control.Controller, wg *sync.WaitGroup, next chan *channels.UPSInfo, poll_interval time.Duration) {
+type UPSHosts struct {
+	Hosts []*UPSDClient
+}
+
+func NewUPSHosts(hosts_flag string, default_port int) *UPSHosts {
+	ret := &UPSHosts{}
+	hosts := []*UPSDClient{}
+	for _, host := range strings.Split(hosts_flag, ",") {
+		// If the host has a port, use it. Otherwise, use the default.
+		host_fragments := strings.Split(host, ":")
+		if len(host_fragments) == 1 {
+			hosts = append(hosts, NewUPSDClient(host, 3493))
+		} else if len(host_fragments) == 2 {
+			port, err := strconv.Atoi(host_fragments[1])
+			if err != nil {
+				log.Fatalf("Error parsing port number from %v: %v", host, err)
+			}
+			hosts = append(hosts, NewUPSDClient(host_fragments[0], port))
+		} else {
+			log.Fatalf("Error parsing host '%v' from flag", host)
+		}
+	}
+	ret.Hosts = hosts
+	return ret
+}
+
+func (ups_hosts *UPSHosts) UPSInfoProducer(c *control.Controller, wg *sync.WaitGroup, next chan *channels.UPSInfo, poll_interval time.Duration) {
 	// Check the list of UPses and emit each one on the channel for checking.
 	defer wg.Done()
-	log.Printf("Watching for UPSes on %v:%v\n", upsd_c.Host(), upsd_c.Port())
+	for _, upsd_c := range ups_hosts.Hosts {
+		log.Printf("Watching for UPSes on %v:%v\n", upsd_c.Host(), upsd_c.Port())
+	}
 	for {
-		upses, err := GetUPSes(upsd_c)
-		if err != nil {
-			c.Shutdown("Error getting UPSes: %v", err)
-		}
-		for _, u := range upses {
-			GetUpdatedVars(upsd_c, u)
-			next <- u
+		for _, upsd_c := range ups_hosts.Hosts {
+			upses, err := GetUPSes(upsd_c)
+			if err != nil {
+				c.Shutdown("Error getting UPSes: %v", err)
+			}
+			for _, u := range upses {
+				GetUpdatedVars(upsd_c, u)
+				next <- u
+			}
 		}
 		time.Sleep(poll_interval * time.Second)
 	}
@@ -158,7 +188,7 @@ func GetUPSes(upsd_c UPSDClientIf) ([]*channels.UPSInfo, error) {
 		return nil, err
 	}
 	for k, v := range upslist {
-		upses = append(upses, &channels.UPSInfo{Name: k, Description: v, Vars: make(map[string]string)})
+		upses = append(upses, &channels.UPSInfo{Name: k, Description: v, Host: upsd_c.Host(), Vars: make(map[string]string)})
 	}
 	return upses, nil
 }

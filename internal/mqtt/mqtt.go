@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -55,6 +56,15 @@ func (c *mqttClient) PublishMessage(msg *channels.MQTTUpdate) error {
 	return nil
 }
 
+func (c *mqttClient) Subscribe(topic string, callback mqtt.MessageHandler) error {
+	token := c.c.Subscribe(topic, 0, callback)
+	token.Wait()
+	if token.Error() != nil {
+		return error(token.Error())
+	}
+	return nil
+}
+
 func (c *mqttClient) Disconnect(code uint) {
 	c.c.Disconnect(code)
 }
@@ -69,7 +79,7 @@ func (c *mqttClient) UpdateProducer(controller *control.Controller, ups_chan cha
 			changed_vars := upsc.GetVarDiff(old, ups)
 			if len(changed_vars) > 0 {
 				for k, v := range changed_vars {
-					topic := ups.Name + "/" + k
+					topic := fmt.Sprintf("hosts/%v/%v/%v", ups.Host, ups.Name, k)
 					// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
 					topic = strings.Replace(topic, ".", "/", -1)
 					change_chan <- &channels.MQTTUpdate{Topic: topic, Content: v, OldContent: old.Vars[k]}
@@ -77,7 +87,7 @@ func (c *mqttClient) UpdateProducer(controller *control.Controller, ups_chan cha
 			}
 		} else {
 			for k, v := range ups.Vars {
-				topic := ups.Name + "/" + k
+				topic := fmt.Sprintf("hosts/%v/%v/%v", ups.Host, ups.Name, k)
 				// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
 				topic = strings.Replace(topic, ".", "/", -1)
 				change_chan <- &channels.MQTTUpdate{Topic: topic, Content: v, OldContent: ""}
