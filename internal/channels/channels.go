@@ -14,10 +14,6 @@ func (cm ControlMessage) String() string {
 	return fmt.Sprintf("Operation: %s, Comment: %s", cm.Operation, cm.Comment)
 }
 
-func NewControlMessage(operation string, comment string) *ControlMessage {
-	return &ControlMessage{Operation: operation, Comment: comment}
-}
-
 // MQTT
 
 // A struct to describe an MQTT update to be made.
@@ -28,7 +24,6 @@ type MQTTUpdate struct {
 }
 
 // UPS Info
-
 type UPSInfo struct {
 	Name        string
 	Description string

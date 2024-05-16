@@ -24,12 +24,12 @@ func NewController(mqtt_change_chan chan *channels.MQTTUpdate, mqtt_topic string
 
 func (c Controller) Startup(comment string, args ...interface{}) {
 	comment = fmt.Sprintf("Startup: "+comment, args...)
-	c.control_chan <- channels.NewControlMessage("startup", comment)
+	c.control_chan <- &channels.ControlMessage{Operation: "startup", Comment: comment}
 }
 
 func (c Controller) Shutdown(comment string, args ...interface{}) {
 	comment = fmt.Sprintf("Shutdown: "+comment, args...)
-	c.control_chan <- channels.NewControlMessage("shutdown", comment)
+	c.control_chan <- &channels.ControlMessage{Operation: "shutdown", Comment: comment}
 }
 
 func (c *Controller) ControlMessageConsumer(wg *sync.WaitGroup) {
