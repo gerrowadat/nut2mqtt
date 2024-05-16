@@ -9,15 +9,6 @@ import (
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 )
 
-type ControlMessage struct {
-	operation string
-	comment   string
-}
-
-func (cm ControlMessage) String() string {
-	return fmt.Sprintf("Operation: %s, Comment: %s", cm.operation, cm.comment)
-}
-
 type Controller struct {
 	control_chan chan *channels.ControlMessage
 	mqtt_chan    chan *channels.MQTTUpdate
@@ -45,10 +36,16 @@ func (c *Controller) ControlMessageConsumer(wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		msg := <-c.control_chan
-		ProcessMessage(msg)
+		fmt.Println("Processing Control message: ", msg.String())
+		switch msg.Operation {
+		case "startup":
+			c.mqtt_chan <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "online"}
+		case "shutdown":
+			c.mqtt_chan <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "offline"}
+			// returning will exit the consumer, and process will end.
+			return
+		default:
+			fmt.Println("Unknown operation on control channel: ", msg.Operation)
+		}
 	}
-}
-
-func ProcessMessage(msg *channels.ControlMessage) {
-	fmt.Println("Processing message: ", msg.String())
 }

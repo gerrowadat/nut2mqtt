@@ -46,7 +46,8 @@ func main() {
 	ups_chan := make(chan *channels.UPSInfo)
 	mqtt_change_chan := make(chan *channels.MQTTUpdate)
 
-	controller := control.NewController(mqtt_change_chan, fmt.Sprintf("%v/%v", mqtt_topic_base, control_topic))
+	// Create the controller
+	controller := control.NewController(mqtt_change_chan, *control_topic)
 
 	var wg sync.WaitGroup
 
@@ -61,6 +62,9 @@ func main() {
 	controller.Startup("Online at %v", time.Now().String())
 
 	wg.Wait()
+
+	// One of our goroutines has died, send our offline message and exit.
+	mqtt_client.PublishMessage(&channels.MQTTUpdate{Topic: *control_topic, Content: "offline"})
 }
 
 func checkErrFatal(err error) {
