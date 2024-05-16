@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gerrowadat/nut2mqtt/internal/channels"
+	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 )
 
 var GetKeyValueFromListLine = getKeyValueFromListLine
@@ -278,6 +278,41 @@ func TestGetUpdatedVars(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetUpdatedVars() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetVarDiff(t *testing.T) {
+	type args struct {
+		old *channels.UPSInfo
+		new *channels.UPSInfo
+	}
+	tests := []struct {
+		name string
+		args args
+		want map[string]string
+	}{
+		{
+			name: "NoChanges",
+			args: args{old: &channels.UPSInfo{Vars: map[string]string{"stuff.things": "yokes"}}, new: &channels.UPSInfo{Vars: map[string]string{"stuff.things": "yokes"}}},
+			want: map[string]string{},
+		},
+		{
+			name: "ChangeFromNone",
+			args: args{old: &channels.UPSInfo{}, new: &channels.UPSInfo{Vars: map[string]string{"stuff.things": "yokes"}}},
+			want: map[string]string{"stuff.things": "yokes"},
+		},
+		{
+			name: "ChangeExisting",
+			args: args{old: &channels.UPSInfo{Vars: map[string]string{"stuff.things": "yokes"}}, new: &channels.UPSInfo{Vars: map[string]string{"stuff.things": "notyokes"}}},
+			want: map[string]string{"stuff.things": "notyokes"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetVarDiff(tt.args.old, tt.args.new); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetVarDiff() = %v, want %v", got, tt.want)
 			}
 		})
 	}
