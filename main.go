@@ -8,20 +8,24 @@ import (
 	"sync"
 	"time"
 
+	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
+	control "github.com/gerrowadat/nut2mqtt/internal/control"
 	mqtt "github.com/gerrowadat/nut2mqtt/internal/mqtt"
 	upsc "github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
 
 func main() {
-	upsd_host := flag.String("upsd_host", "localhost", "address of upsd host")
-	upsd_port := flag.Int("upsd_port", 3493, "port of upsd server")
-	mqtt_host := flag.String("mqtt_host", "localhost", "address of MQTT server")
-	mqtt_port := flag.Int("mqtt_prt", 1883, "port of mqtt server")
-	mqtt_user := flag.String("mqtt_user", "nut", "MQTT username")
+	upsd_host := flag.String("upsd-host", "localhost", "address of upsd host")
+	upsd_port := flag.Int("upsd-port", 3493, "port of upsd server")
+	mqtt_host := flag.String("mqtt-host", "localhost", "address of MQTT server")
+	mqtt_port := flag.Int("mqtt-prt", 1883, "port of mqtt server")
+	mqtt_user := flag.String("mqtt-user", "nut", "MQTT username")
 	mqtt_password := os.Getenv("MQTT_PASSWORD")
 
-	mqtt_topic_base := flag.String("mqtt_topic_base", "nut/", "base topic for MQTT messages")
-	upsd_poll_interval := flag.Int("upsd_poll_interval", 30, "interval between upsd polls")
+	mqtt_topic_base := flag.String("mqtt-topic-base", "nut/", "base topic for MQTT messages")
+	upsd_poll_interval := flag.Int("upsd-poll-interval", 30, "interval between upsd polls")
+
+	control_topic := flag.String("control-topic", "bridge", "subtopic for control/alive messages")
 
 	flag.Parse()
 
@@ -38,17 +42,23 @@ func main() {
 	defer mqtt_client.Disconnect(250)
 	mqtt_client.SetTopicBase(*mqtt_topic_base)
 
-	// Start the upsd polling
-	ups_chan := make(chan *upsc.UPSInfo)
-	mqtt_change_chan := make(chan *mqtt.MQTTUpdate)
+	// Various channels for processing
+	ups_chan := make(chan *channels.UPSInfo)
+	mqtt_change_chan := make(chan *channels.MQTTUpdate)
+
+	controller := control.NewController(mqtt_change_chan, fmt.Sprintf("%v/%v", mqtt_topic_base, control_topic))
 
 	var wg sync.WaitGroup
 
-	wg.Add(3)
+	// This is 1 because we want to exit if any of the below goroutines exit.
+	wg.Add(1)
 
-	go upsd_c.WatchForUPSes(time.Duration(*upsd_poll_interval), ups_chan, &wg)
-	go mqtt_client.ChannelUpdates(ups_chan, mqtt_change_chan, &wg)
-	go mqtt_client.ConsumeChannelUpdates(mqtt_change_chan, &wg)
+	go controller.ControlMessageConsumer(&wg)
+	go upsd_c.UPSInfoProducer(&controller, &wg, ups_chan, time.Duration(*upsd_poll_interval))
+	go mqtt_client.UpdateProducer(&controller, ups_chan, mqtt_change_chan, &wg)
+	go mqtt_client.UpdateConsumer(&controller, mqtt_change_chan, &wg)
+
+	controller.Startup("Online at %v", time.Now().String())
 
 	wg.Wait()
 }
