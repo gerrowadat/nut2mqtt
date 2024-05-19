@@ -8,12 +8,10 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 	control "github.com/gerrowadat/nut2mqtt/internal/control"
-	"github.com/gerrowadat/nut2mqtt/internal/metrics"
 )
 
 type UPSDClientIf interface {
@@ -69,9 +67,9 @@ func NewUPSHosts(hosts_flag string, default_port int) *UPSHosts {
 	return ret
 }
 
-func (ups_hosts *UPSHosts) UPSInfoProducer(c *control.Controller, mr *metrics.MetricRegistry, wg *sync.WaitGroup, next chan *channels.UPSInfo, poll_interval time.Duration) {
+func (ups_hosts *UPSHosts) UPSInfoProducer(c *control.Controller, poll_interval time.Duration) {
 	// Check the list of UPses and emit each one on the channel for checking.
-	defer wg.Done()
+	defer c.WaitGroupDone()
 	for _, upsd_c := range ups_hosts.Hosts {
 		log.Printf("Watching for UPSes on %v:%v\n", upsd_c.Host(), upsd_c.Port())
 	}
@@ -82,9 +80,9 @@ func (ups_hosts *UPSHosts) UPSInfoProducer(c *control.Controller, mr *metrics.Me
 				c.Shutdown("Error getting UPSes: %v", err)
 			}
 			for _, u := range upses {
-				mr.Metrics().UPSScrapesCount.Inc()
+				c.MetricRegistry().Metrics().UPSScrapesCount.Inc()
 				GetUpdatedVars(upsd_c, u)
-				next <- u
+				c.Channels().Ups <- u
 			}
 		}
 		time.Sleep(poll_interval * time.Second)

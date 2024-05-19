@@ -11,39 +11,65 @@ import (
 )
 
 type Controller struct {
-	control_chan chan *channels.ControlMessage
-	mqtt_chan    chan *channels.MQTTUpdate
-	mqtt_topic   string
+	cb         *channels.ChannelBundle
+	mr         *metrics.MetricRegistry
+	wg         *sync.WaitGroup
+	mqtt_topic string
 }
 
-func NewController(mqtt_change_chan chan *channels.MQTTUpdate, mqtt_topic string) Controller {
+func NewController(mqtt_topic string) Controller {
+	var wg sync.WaitGroup
+	// Set to 1, as we want to exit if even 1 subprocess dies.
+	wg.Add(1)
 	return Controller{
-		control_chan: make(chan *channels.ControlMessage),
-		mqtt_chan:    mqtt_change_chan,
-		mqtt_topic:   mqtt_topic}
+		cb: &channels.ChannelBundle{
+			Control: make(chan *channels.ControlMessage),
+			Ups:     make(chan *channels.UPSInfo),
+			Mqtt:    make(chan *channels.MQTTUpdate),
+		},
+		mr:         metrics.NewMetricRegistry(),
+		wg:         &wg,
+		mqtt_topic: mqtt_topic}
 }
 
 func (c Controller) Startup(comment string, args ...interface{}) {
 	comment = fmt.Sprintf("Startup: "+comment, args...)
-	c.control_chan <- &channels.ControlMessage{Operation: "startup", Comment: comment}
+	c.cb.Control <- &channels.ControlMessage{Operation: "startup", Comment: comment}
 }
 
 func (c Controller) Shutdown(comment string, args ...interface{}) {
 	comment = fmt.Sprintf("Shutdown: "+comment, args...)
-	c.control_chan <- &channels.ControlMessage{Operation: "shutdown", Comment: comment}
+	c.cb.Control <- &channels.ControlMessage{Operation: "shutdown", Comment: comment}
 }
 
-func (c *Controller) ControlMessageConsumer(mr *metrics.MetricRegistry, wg *sync.WaitGroup) {
-	defer wg.Done()
+// Redirections to other bits, I am a bad programmer man.
+func (c Controller) WaitGroupDone() {
+	c.wg.Done()
+}
+
+func (c Controller) Wait() {
+	c.wg.Wait()
+}
+
+func (c Controller) MetricRegistry() *metrics.MetricRegistry {
+	return c.mr
+}
+
+func (c Controller) Channels() *channels.ChannelBundle {
+	return c.cb
+}
+
+func (c *Controller) ControlMessageConsumer() {
+	defer c.wg.Done()
 	for {
-		msg := <-c.control_chan
-		mr.Metrics().ControlMessagesProcessed.Inc()
+		msg := <-c.cb.Control
+		c.mr.Metrics().ControlMessagesProcessed.Inc()
 		fmt.Println("Processing Control message: ", msg.String())
 		switch msg.Operation {
 		case "startup":
-			c.mqtt_chan <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "online"}
+			c.cb.Mqtt <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "online"}
 		case "shutdown":
-			c.mqtt_chan <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "offline"}
+			c.cb.Mqtt <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "offline"}
 			// returning will exit the consumer, and process will end.
 			return
 		default:

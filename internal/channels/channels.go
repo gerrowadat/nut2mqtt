@@ -4,6 +4,13 @@ package channels
 
 import "fmt"
 
+// A bundle of channels, to be passed around inside the controller.
+type ChannelBundle struct {
+	Control chan *ControlMessage
+	Ups     chan *UPSInfo
+	Mqtt    chan *MQTTUpdate
+}
+
 // A control message for the overall process.
 type ControlMessage struct {
 	Operation string

@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 	control "github.com/gerrowadat/nut2mqtt/internal/control"
 	http "github.com/gerrowadat/nut2mqtt/internal/http"
-	metrics "github.com/gerrowadat/nut2mqtt/internal/metrics"
 	mqtt "github.com/gerrowadat/nut2mqtt/internal/mqtt"
 	upsc "github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
@@ -33,9 +31,6 @@ func main() {
 
 	flag.Parse()
 
-	// Set up Prometheus metrics
-	metric_reg := metrics.NewMetricRegistry()
-
 	// Get the list of UPSes from upsd
 	ups_hosts := upsc.NewUPSHosts(*upsd_hosts, *upsd_port)
 
@@ -45,38 +40,22 @@ func main() {
 	if err != nil {
 		log.Fatal("MQTT fatal error: ", err)
 	}
-	checkErrFatal(err)
 	defer mqtt_client.Disconnect(250)
 	mqtt_client.SetTopicBase(*mqtt_topic_base)
 
-	// Various channels for processing
-	ups_chan := make(chan *channels.UPSInfo)
-	mqtt_change_chan := make(chan *channels.MQTTUpdate)
-
 	// Create the controller
-	controller := control.NewController(mqtt_change_chan, *control_topic)
+	controller := control.NewController(*control_topic)
 
-	var wg sync.WaitGroup
-
-	// This is 1 because we want to exit if any of the below goroutines exit.
-	wg.Add(1)
-
-	go controller.ControlMessageConsumer(metric_reg, &wg)
-	go ups_hosts.UPSInfoProducer(&controller, metric_reg, &wg, ups_chan, time.Duration(*upsd_poll_interval))
-	go mqtt_client.UpdateProducer(&controller, ups_chan, mqtt_change_chan, &wg)
-	go mqtt_client.UpdateConsumer(&controller, mqtt_change_chan, metric_reg, &wg)
-	go http.HTTPServer(&controller, http_listen, metric_reg, &wg)
+	go controller.ControlMessageConsumer()
+	go ups_hosts.UPSInfoProducer(&controller, time.Duration(*upsd_poll_interval))
+	go mqtt_client.UpdateProducer(&controller)
+	go mqtt_client.UpdateConsumer(&controller)
+	go http.HTTPServer(&controller, http_listen)
 
 	controller.Startup("Online at %v", time.Now().String())
 
-	wg.Wait()
+	controller.Wait()
 
 	// One of our goroutines has died, send our offline message and exit.
 	mqtt_client.PublishMessage(&channels.MQTTUpdate{Topic: *control_topic, Content: "offline"})
-}
-
-func checkErrFatal(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
 }
