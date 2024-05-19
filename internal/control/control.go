@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
+	"github.com/gerrowadat/nut2mqtt/internal/metrics"
 )
 
 type Controller struct {
@@ -32,10 +33,11 @@ func (c Controller) Shutdown(comment string, args ...interface{}) {
 	c.control_chan <- &channels.ControlMessage{Operation: "shutdown", Comment: comment}
 }
 
-func (c *Controller) ControlMessageConsumer(wg *sync.WaitGroup) {
+func (c *Controller) ControlMessageConsumer(mr *metrics.MetricRegistry, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		msg := <-c.control_chan
+		mr.Metrics().ControlMessagesProcessed.Inc()
 		fmt.Println("Processing Control message: ", msg.String())
 		switch msg.Operation {
 		case "startup":

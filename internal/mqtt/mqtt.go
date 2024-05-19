@@ -9,6 +9,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 	control "github.com/gerrowadat/nut2mqtt/internal/control"
+	"github.com/gerrowadat/nut2mqtt/internal/metrics"
 	"github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
 
@@ -97,7 +98,7 @@ func (c *mqttClient) UpdateProducer(controller *control.Controller, ups_chan cha
 	}
 }
 
-func (c *mqttClient) UpdateConsumer(controller *control.Controller, change_chan chan *channels.MQTTUpdate, wg *sync.WaitGroup) {
+func (c *mqttClient) UpdateConsumer(controller *control.Controller, change_chan chan *channels.MQTTUpdate, mr *metrics.MetricRegistry, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		update := <-change_chan
@@ -106,6 +107,7 @@ func (c *mqttClient) UpdateConsumer(controller *control.Controller, change_chan 
 			old = "[null]"
 		}
 		log.Printf("MQTT Change: [%v]\t%v -> %v ", c.GetTopicBase()+update.Topic, old, update.Content)
+		mr.Metrics().MQTTUpdatesProcessed.Inc()
 		c.PublishMessage(update)
 	}
 }

@@ -10,6 +10,8 @@ import (
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 	control "github.com/gerrowadat/nut2mqtt/internal/control"
+	http "github.com/gerrowadat/nut2mqtt/internal/http"
+	metrics "github.com/gerrowadat/nut2mqtt/internal/metrics"
 	mqtt "github.com/gerrowadat/nut2mqtt/internal/mqtt"
 	upsc "github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
@@ -18,7 +20,7 @@ func main() {
 	upsd_hosts := flag.String("upsd-hosts", "localhost", "address of upsd host(s), comma-separated")
 	upsd_port := flag.Int("upsd-port", 3493, "port of upsd server")
 	mqtt_host := flag.String("mqtt-host", "localhost", "address of MQTT server")
-	mqtt_port := flag.Int("mqtt-prt", 1883, "port of mqtt server")
+	mqtt_port := flag.Int("mqtt-port", 1883, "port of mqtt server")
 	mqtt_user := flag.String("mqtt-user", "nut", "MQTT username")
 	mqtt_password := os.Getenv("MQTT_PASSWORD")
 
@@ -27,7 +29,12 @@ func main() {
 
 	control_topic := flag.String("control-topic", "bridge", "subtopic for control/alive messages")
 
+	http_listen := flag.String("http-listen", ":8080", "Where the http server should listen (default :8080)")
+
 	flag.Parse()
+
+	// Set up Prometheus metrics
+	metric_reg := metrics.NewMetricRegistry()
 
 	// Get the list of UPSes from upsd
 	ups_hosts := upsc.NewUPSHosts(*upsd_hosts, *upsd_port)
@@ -54,10 +61,11 @@ func main() {
 	// This is 1 because we want to exit if any of the below goroutines exit.
 	wg.Add(1)
 
-	go controller.ControlMessageConsumer(&wg)
-	go ups_hosts.UPSInfoProducer(&controller, &wg, ups_chan, time.Duration(*upsd_poll_interval))
+	go controller.ControlMessageConsumer(metric_reg, &wg)
+	go ups_hosts.UPSInfoProducer(&controller, metric_reg, &wg, ups_chan, time.Duration(*upsd_poll_interval))
 	go mqtt_client.UpdateProducer(&controller, ups_chan, mqtt_change_chan, &wg)
-	go mqtt_client.UpdateConsumer(&controller, mqtt_change_chan, &wg)
+	go mqtt_client.UpdateConsumer(&controller, mqtt_change_chan, metric_reg, &wg)
+	go http.HTTPServer(&controller, http_listen, metric_reg, &wg)
 
 	controller.Startup("Online at %v", time.Now().String())
 
