@@ -29,6 +29,7 @@ func NewMetrics(reg prometheus.Registerer) *metrics {
 			},
 		),
 	}
+	reg.MustRegister(m.ControlMessagesProcessed)
 	reg.MustRegister(m.UPSScrapesCount)
 	reg.MustRegister(m.MQTTUpdatesProcessed)
 	return m
