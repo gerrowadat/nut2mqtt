@@ -2,17 +2,15 @@ package http
 
 import (
 	"net/http"
-	"sync"
 
 	control "github.com/gerrowadat/nut2mqtt/internal/control"
-	"github.com/gerrowadat/nut2mqtt/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func HTTPServer(controller *control.Controller, listen *string, mr *metrics.MetricRegistry, wg *sync.WaitGroup) {
-	defer wg.Done()
+func HTTPServer(c *control.Controller, listen *string) {
+	defer c.WaitGroupDone()
 	http.HandleFunc("/", RootHandler)
-	http.Handle("/metrics", promhttp.HandlerFor(mr.Registry(), promhttp.HandlerOpts{Registry: mr.Registry()}))
+	http.Handle("/metrics", promhttp.HandlerFor(c.MetricRegistry().Registry(), promhttp.HandlerOpts{Registry: c.MetricRegistry().Registry()}))
 
 	http.ListenAndServe(*listen, nil)
 }

@@ -4,50 +4,141 @@ package control
 
 import (
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
-	"github.com/gerrowadat/nut2mqtt/internal/metrics"
+	metrics "github.com/gerrowadat/nut2mqtt/internal/metrics"
 )
 
 type Controller struct {
-	control_chan chan *channels.ControlMessage
-	mqtt_chan    chan *channels.MQTTUpdate
-	mqtt_topic   string
+	cb         *channels.ChannelBundle
+	mr         *metrics.MetricRegistry
+	wg         *sync.WaitGroup
+	mqtt_topic string
 }
 
-func NewController(mqtt_change_chan chan *channels.MQTTUpdate, mqtt_topic string) Controller {
+func NewController(mqtt_topic string) Controller {
+	var wg sync.WaitGroup
+	// Set to 1, as we want to exit if even 1 subprocess dies.
+	wg.Add(1)
 	return Controller{
-		control_chan: make(chan *channels.ControlMessage),
-		mqtt_chan:    mqtt_change_chan,
-		mqtt_topic:   mqtt_topic}
+		cb: &channels.ChannelBundle{
+			Control:       make(chan *channels.ControlMessage),
+			Ups:           make(chan *channels.UPSInfo),
+			Metrics:       make(chan *channels.UPSVariableUpdate),
+			MqttConverter: make(chan *channels.UPSVariableUpdate),
+			Mqtt:          make(chan *channels.MQTTUpdate),
+		},
+		mr:         metrics.NewMetricRegistry(),
+		wg:         &wg,
+		mqtt_topic: mqtt_topic}
 }
 
 func (c Controller) Startup(comment string, args ...interface{}) {
 	comment = fmt.Sprintf("Startup: "+comment, args...)
-	c.control_chan <- &channels.ControlMessage{Operation: "startup", Comment: comment}
+	c.cb.Control <- &channels.ControlMessage{Operation: "startup", Comment: comment}
 }
 
 func (c Controller) Shutdown(comment string, args ...interface{}) {
 	comment = fmt.Sprintf("Shutdown: "+comment, args...)
-	c.control_chan <- &channels.ControlMessage{Operation: "shutdown", Comment: comment}
+	c.cb.Control <- &channels.ControlMessage{Operation: "shutdown", Comment: comment}
 }
 
-func (c *Controller) ControlMessageConsumer(mr *metrics.MetricRegistry, wg *sync.WaitGroup) {
-	defer wg.Done()
+// Redirections to other bits, I am a bad programmer man.
+func (c Controller) WaitGroupDone() {
+	c.wg.Done()
+}
+
+func (c Controller) Wait() {
+	c.wg.Wait()
+}
+
+func (c Controller) MetricRegistry() *metrics.MetricRegistry {
+	return c.mr
+}
+
+func (c Controller) Channels() *channels.ChannelBundle {
+	return c.cb
+}
+
+func (c *Controller) ControlMessageConsumer() {
+	defer c.wg.Done()
 	for {
-		msg := <-c.control_chan
-		mr.Metrics().ControlMessagesProcessed.Inc()
+		msg := <-c.cb.Control
+		c.mr.Metrics().ControlMessagesProcessed.Inc()
 		fmt.Println("Processing Control message: ", msg.String())
 		switch msg.Operation {
 		case "startup":
-			c.mqtt_chan <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "online"}
+			c.cb.Mqtt <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "online"}
 		case "shutdown":
-			c.mqtt_chan <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "offline"}
+			c.cb.Mqtt <- &channels.MQTTUpdate{Topic: c.mqtt_topic + "/state", Content: "offline"}
 			// returning will exit the consumer, and process will end.
 			return
 		default:
 			fmt.Println("Unknown operation on control channel: ", msg.Operation)
 		}
+	}
+}
+
+// A decaying cache of UPS info. If we don't see a UPS for a while, we remove it.
+type DecayingUPSCacheEntry struct {
+	ups       *channels.UPSInfo
+	last_seen *time.Time
+}
+
+func PruneUPSCache(cache map[string]*DecayingUPSCacheEntry, expiry time.Duration) {
+	expiry_time := time.Now().Add(-expiry)
+	for k, v := range cache {
+		if v.last_seen.Before(expiry_time) {
+			log.Printf("Pruning UPS cache entry: %v ", k)
+			delete(cache, k)
+		}
+	}
+
+}
+
+func (c *Controller) EmitVariableUpdate(chg *channels.UPSVariableUpdate) {
+	// Send to all the channels that care about this.
+	// Remember these are blocking.
+	c.mr.Metrics().UPSVariableUpdatesProcessed.Inc()
+	c.cb.Metrics <- chg
+	c.cb.MqttConverter <- chg
+}
+
+func (c *Controller) UPSVariableUpdateMultiplexer() {
+	defer c.wg.Done()
+	ups_info := map[string]*DecayingUPSCacheEntry{}
+	for {
+		// Get a UPSInfo from the channel
+		u := <-c.cb.Ups
+		// Prune our UPS cache first
+		PruneUPSCache(ups_info, 5*time.Minute)
+		// If this is a brand new UPS, we need to emit all of its variables.
+		_, present := ups_info[u.Name]
+		if !present {
+			for k, v := range u.Vars {
+				c.EmitVariableUpdate(&channels.UPSVariableUpdate{Host: u.Host, UpsName: u.Name, VarName: k, Content: v, OldContent: ""})
+			}
+		} else {
+			// This is an existing UPS. We need to diff the variables.
+			old := ups_info[u.Name].ups
+			for k, v := range u.Vars {
+				if old.Vars[k] != v {
+					c.EmitVariableUpdate(&channels.UPSVariableUpdate{Host: u.Host, UpsName: u.Name, VarName: k, Content: v, OldContent: old.Vars[k]})
+				}
+			}
+		}
+		// Plop this into the cache ragardless.
+		ups_info[u.Name] = &DecayingUPSCacheEntry{ups: u, last_seen: &time.Time{}}
+	}
+}
+
+func (c *Controller) MetricsUpdateConsumer() {
+	defer c.wg.Done()
+	for {
+		// Not implemented for now.
+		<-c.cb.Metrics
 	}
 }

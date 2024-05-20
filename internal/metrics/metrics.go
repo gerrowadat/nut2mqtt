@@ -7,9 +7,10 @@ import (
 // Nicked form the example at https://pkg.go.dev/github.com/prometheus/client_golang/prometheus
 
 type metrics struct {
-	ControlMessagesProcessed prometheus.Counter
-	UPSScrapesCount          prometheus.Counter
-	MQTTUpdatesProcessed     prometheus.Counter
+	ControlMessagesProcessed    prometheus.Counter
+	UPSScrapesCount             prometheus.Counter
+	UPSVariableUpdatesProcessed prometheus.Counter
+	MQTTUpdatesProcessed        prometheus.Counter
 }
 
 func NewMetrics(reg prometheus.Registerer) *metrics {
@@ -22,6 +23,12 @@ func NewMetrics(reg prometheus.Registerer) *metrics {
 			Name: "ups_scrapes_count",
 			Help: "Number of UPS scrapes performed.",
 		}),
+		UPSVariableUpdatesProcessed: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "ups_variable_updates_processed",
+				Help: "Number of UPS variable updates processed.",
+			},
+		),
 		MQTTUpdatesProcessed: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "mqtt_updates_processed",
