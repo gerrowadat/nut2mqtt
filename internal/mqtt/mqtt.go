@@ -58,13 +58,17 @@ func (m *mqttClient) Disconnect(code uint) {
 	m.c.Disconnect(code)
 }
 
+func TopicFromUPSVariableUpdate(up *channels.UPSVariableUpdate) string {
+	ret := fmt.Sprintf("hosts/%v/%v/%v", up.Host, up.UpsName, up.VarName)
+	return strings.Replace(ret, ".", "/", -1)
+}
+
 func (m *mqttClient) UpdateProducer(c *control.Controller) {
 	// Take in UPSVariableUpdate messages and spit out MQTTUpdate messages to be consumed.
 	defer c.WaitGroupDone()
 	for {
 		up := <-c.Channels().MqttConverter
-		topic := fmt.Sprintf("hosts/%v/%v/%v", up.Host, up.VarName, up.Content)
-		topic = strings.Replace(topic, ".", "/", -1)
+		topic := TopicFromUPSVariableUpdate(up)
 		c.Channels().Mqtt <- &channels.MQTTUpdate{Topic: topic, Content: up.Content, OldContent: up.OldContent}
 	}
 }
