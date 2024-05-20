@@ -102,6 +102,7 @@ func PruneUPSCache(cache map[string]*DecayingUPSCacheEntry, expiry time.Duration
 func (c *Controller) EmitVariableUpdate(chg *channels.UPSVariableUpdate) {
 	// Send to all the channels that care about this.
 	// Remember these are blocking.
+	c.mr.Metrics().UPSVariableUpdatesProcessed.Inc()
 	c.cb.Metrics <- chg
 	c.cb.MqttConverter <- chg
 }
