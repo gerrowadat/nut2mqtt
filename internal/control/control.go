@@ -5,11 +5,13 @@ package control
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 	metrics "github.com/gerrowadat/nut2mqtt/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Controller struct {
@@ -138,7 +140,20 @@ func (c *Controller) UPSVariableUpdateMultiplexer() {
 func (c *Controller) MetricsUpdateConsumer() {
 	defer c.wg.Done()
 	for {
-		// Not implemented for now.
-		<-c.cb.Metrics
+		up := <-c.cb.Metrics
+		for _, m := range metrics.UPSMetricsList {
+			if m.NutVariable == up.VarName {
+				// Emit this metric with the given host and ups.
+				if m.Type == "gaugevec" {
+					met := c.mr.GetUPSMetric(m.Name).(*prometheus.GaugeVec)
+					val, err := strconv.ParseFloat(up.Content, 64)
+					if err != nil {
+						log.Printf("Error parsing float for UPS variable %v: %v", m.Name, err)
+						continue
+					}
+					met.With(prometheus.Labels{"host": up.Host, "ups": up.UpsName}).Set(val)
+				}
+			}
+		}
 	}
 }
