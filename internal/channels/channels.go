@@ -6,9 +6,18 @@ import "fmt"
 
 // A bundle of channels, to be passed around inside the controller.
 type ChannelBundle struct {
+	// Control messages.
 	Control chan *ControlMessage
-	Ups     chan *UPSInfo
-	Mqtt    chan *MQTTUpdate
+
+	// UPS info, to be consumed by VariableChangeMultiplexer
+	Ups chan *UPSInfo
+
+	// Variable updates to be consumed by metrics and translated to mqtt speak.
+	Metrics       chan *UPSVariableUpdate
+	MqttConverter chan *UPSVariableUpdate
+
+	// MQTT updates to be consumed by the mqtt client
+	Mqtt chan *MQTTUpdate
 }
 
 // A control message for the overall process.
@@ -21,9 +30,21 @@ func (cm ControlMessage) String() string {
 	return fmt.Sprintf("Operation: %s, Comment: %s", cm.Operation, cm.Comment)
 }
 
+// A struct to describe an update to a UPS variable.
+// to be consumed by the various goroutines via their channels.
+type UPSVariableUpdate struct {
+	Host    string
+	UpsName string
+	// the var name, in nut.dotted.format
+	VarName string
+	// the new value
+	Content string
+	// the previous value, if we have it.
+	OldContent string
+}
+
 // MQTT
 
-// A struct to describe an MQTT update to be made.
 type MQTTUpdate struct {
 	// The full topic - note, --mqtt-topic-base is prepended to this.
 	Topic string

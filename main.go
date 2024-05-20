@@ -46,10 +46,23 @@ func main() {
 	// Create the controller
 	controller := control.NewController(*control_topic)
 
+	// Consume control messages, startup, shutdown, etc.
 	go controller.ControlMessageConsumer()
+
+	// Produce UPS info by talking to nut instances.
 	go ups_hosts.UPSInfoProducer(&controller, time.Duration(*upsd_poll_interval))
+
+	// Multiplex these UPS changes into UPSVariableUpdate messages
+	go controller.UPSVariableUpdateMultiplexer()
+
+	// Produce MQTT updates from UPSVariableUpdate messages
 	go mqtt_client.UpdateProducer(&controller)
+
+	// Consume UPS changes and Do the Needful
 	go mqtt_client.UpdateConsumer(&controller)
+	go controller.MetricsUpdateConsumer()
+
+	// Start the http server
 	go http.HTTPServer(&controller, http_listen)
 
 	controller.Startup("Online at %v", time.Now().String())

@@ -8,7 +8,6 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
 	control "github.com/gerrowadat/nut2mqtt/internal/control"
-	"github.com/gerrowadat/nut2mqtt/internal/upsc"
 )
 
 type mqttClient struct {
@@ -60,30 +59,13 @@ func (m *mqttClient) Disconnect(code uint) {
 }
 
 func (m *mqttClient) UpdateProducer(c *control.Controller) {
+	// Take in UPSVariableUpdate messages and spit out MQTTUpdate messages to be consumed.
 	defer c.WaitGroupDone()
-	last_ups := map[string]*channels.UPSInfo{}
 	for {
-		ups := <-c.Channels().Ups
-		old, present := last_ups[ups.Name]
-		if present {
-			changed_vars := upsc.GetVarDiff(old, ups)
-			if len(changed_vars) > 0 {
-				for k, v := range changed_vars {
-					topic := fmt.Sprintf("hosts/%v/%v/%v", ups.Host, ups.Name, k)
-					// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
-					topic = strings.Replace(topic, ".", "/", -1)
-					c.Channels().Mqtt <- &channels.MQTTUpdate{Topic: topic, Content: v, OldContent: old.Vars[k]}
-				}
-			}
-		} else {
-			for k, v := range ups.Vars {
-				topic := fmt.Sprintf("hosts/%v/%v/%v", ups.Host, ups.Name, k)
-				// upsd uses . and we use / - this isn't always the right way, but it often is, so *shrug*
-				topic = strings.Replace(topic, ".", "/", -1)
-				c.Channels().Mqtt <- &channels.MQTTUpdate{Topic: topic, Content: v, OldContent: ""}
-			}
-		}
-		last_ups[ups.Name] = ups
+		up := <-c.Channels().MqttConverter
+		topic := fmt.Sprintf("hosts/%v/%v/%v", up.Host, up.VarName, up.Content)
+		topic = strings.Replace(topic, ".", "/", -1)
+		c.Channels().Mqtt <- &channels.MQTTUpdate{Topic: topic, Content: up.Content, OldContent: up.OldContent}
 	}
 }
 

@@ -4,10 +4,12 @@ package control
 
 import (
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	channels "github.com/gerrowadat/nut2mqtt/internal/channels"
-	"github.com/gerrowadat/nut2mqtt/internal/metrics"
+	metrics "github.com/gerrowadat/nut2mqtt/internal/metrics"
 )
 
 type Controller struct {
@@ -23,9 +25,11 @@ func NewController(mqtt_topic string) Controller {
 	wg.Add(1)
 	return Controller{
 		cb: &channels.ChannelBundle{
-			Control: make(chan *channels.ControlMessage),
-			Ups:     make(chan *channels.UPSInfo),
-			Mqtt:    make(chan *channels.MQTTUpdate),
+			Control:       make(chan *channels.ControlMessage),
+			Ups:           make(chan *channels.UPSInfo),
+			Metrics:       make(chan *channels.UPSVariableUpdate),
+			MqttConverter: make(chan *channels.UPSVariableUpdate),
+			Mqtt:          make(chan *channels.MQTTUpdate),
 		},
 		mr:         metrics.NewMetricRegistry(),
 		wg:         &wg,
@@ -75,5 +79,65 @@ func (c *Controller) ControlMessageConsumer() {
 		default:
 			fmt.Println("Unknown operation on control channel: ", msg.Operation)
 		}
+	}
+}
+
+// A decaying cache of UPS info. If we don't see a UPS for a while, we remove it.
+type DecayingUPSCacheEntry struct {
+	ups       *channels.UPSInfo
+	last_seen *time.Time
+}
+
+func PruneUPSCache(cache map[string]*DecayingUPSCacheEntry, expiry time.Duration) {
+	expiry_time := time.Now().Add(-expiry)
+	for k, v := range cache {
+		if v.last_seen.Before(expiry_time) {
+			log.Printf("Pruning UPS cache entry: %v ", k)
+			delete(cache, k)
+		}
+	}
+
+}
+
+func (c *Controller) EmitVariableUpdate(chg *channels.UPSVariableUpdate) {
+	// Send to all the channels that care about this.
+	// Remember these are blocking.
+	c.cb.Metrics <- chg
+	c.cb.MqttConverter <- chg
+}
+
+func (c *Controller) UPSVariableUpdateMultiplexer() {
+	defer c.wg.Done()
+	ups_info := map[string]*DecayingUPSCacheEntry{}
+	for {
+		// Get a UPSInfo from the channel
+		u := <-c.cb.Ups
+		// Prune our UPS cache first
+		PruneUPSCache(ups_info, 5*time.Minute)
+		// If this is a brand new UPS, we need to emit all of its variables.
+		_, present := ups_info[u.Name]
+		if !present {
+			for k, v := range u.Vars {
+				c.EmitVariableUpdate(&channels.UPSVariableUpdate{Host: u.Host, UpsName: u.Name, VarName: k, Content: v, OldContent: ""})
+			}
+		} else {
+			// This is an existing UPS. We need to diff the variables.
+			old := ups_info[u.Name].ups
+			for k, v := range u.Vars {
+				if old.Vars[k] != v {
+					c.EmitVariableUpdate(&channels.UPSVariableUpdate{Host: u.Host, UpsName: u.Name, VarName: k, Content: v, OldContent: old.Vars[k]})
+				}
+			}
+		}
+		// Plop this into the cache ragardless.
+		ups_info[u.Name] = &DecayingUPSCacheEntry{ups: u, last_seen: &time.Time{}}
+	}
+}
+
+func (c *Controller) MetricsUpdateConsumer() {
+	defer c.wg.Done()
+	for {
+		// Not implemented for now.
+		<-c.cb.Metrics
 	}
 }

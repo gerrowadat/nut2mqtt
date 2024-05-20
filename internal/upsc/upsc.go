@@ -81,7 +81,11 @@ func (ups_hosts *UPSHosts) UPSInfoProducer(c *control.Controller, poll_interval 
 			}
 			for _, u := range upses {
 				c.MetricRegistry().Metrics().UPSScrapesCount.Inc()
-				GetUpdatedVars(upsd_c, u)
+				//GetUpdatedVars(upsd_c, u)
+				u.Vars, err = GetVars(upsd_c, u)
+				if err != nil {
+					c.Shutdown("Error getting vars for %v: %v", u.Name, err)
+				}
 				c.Channels().Ups <- u
 			}
 		}
@@ -193,10 +197,18 @@ func GetUPSes(upsd_c UPSDClientIf) ([]*channels.UPSInfo, error) {
 	return upses, nil
 }
 
+func GetVars(upsd_c UPSDClientIf, u *channels.UPSInfo) (map[string]string, error) {
+	ret, err := UpsdCommand(upsd_c, "LIST VAR "+u.Name)
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
 func GetUpdatedVars(upsd_c UPSDClientIf, u *channels.UPSInfo) (map[string]string, error) {
 	// Fetch updated vars for this UPS and both update the struct in place and return the new values.
 	ret := map[string]string{}
-	new_vars, err := UpsdCommand(upsd_c, "LIST VAR "+u.Name)
+	new_vars, err := GetVars(upsd_c, u)
 	if err != nil {
 		return nil, err
 	}
