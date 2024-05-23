@@ -53,6 +53,23 @@ func TestPruneUPSCache(t *testing.T) {
 			},
 			want_len: 0,
 		},
+		{
+			name: "OneExpiredOneUnexpiredCacheEntry",
+			args: args{
+				cache: map[string]*DecayingUPSCacheEntry{
+					"test": {
+						ups:       &channels.UPSInfo{},
+						last_seen: time.Now().Add(-time.Duration(31) * time.Second),
+					},
+					"test2": {
+						ups:       &channels.UPSInfo{},
+						last_seen: time.Now(),
+					},
+				},
+				expiry: "30s",
+			},
+			want_len: 1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
