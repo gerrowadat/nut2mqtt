@@ -15,13 +15,16 @@ import (
 )
 
 type Controller struct {
-	cb         *channels.ChannelBundle
-	mr         *metrics.MetricRegistry
-	wg         *sync.WaitGroup
+	cb *channels.ChannelBundle
+	mr *metrics.MetricRegistry
+	wg *sync.WaitGroup
+	// the MQTT topic just for the controller messages
 	mqtt_topic string
+	// How long to keep UPS cache entries around for.
+	ups_cache_lifetime time.Duration
 }
 
-func NewController(mqtt_topic string) Controller {
+func NewController(mqtt_topic string, ups_cache_lifetime time.Duration) Controller {
 	var wg sync.WaitGroup
 	// Set to 1, as we want to exit if even 1 subprocess dies.
 	wg.Add(1)
@@ -33,9 +36,10 @@ func NewController(mqtt_topic string) Controller {
 			MqttConverter: make(chan *channels.UPSVariableUpdate),
 			Mqtt:          make(chan *channels.MQTTUpdate),
 		},
-		mr:         metrics.NewMetricRegistry(),
-		wg:         &wg,
-		mqtt_topic: mqtt_topic}
+		mr:                 metrics.NewMetricRegistry(),
+		wg:                 &wg,
+		mqtt_topic:         mqtt_topic,
+		ups_cache_lifetime: ups_cache_lifetime}
 }
 
 func (c Controller) Startup(comment string, args ...interface{}) {
@@ -87,7 +91,7 @@ func (c *Controller) ControlMessageConsumer() {
 // A decaying cache of UPS info. If we don't see a UPS for a while, we remove it.
 type DecayingUPSCacheEntry struct {
 	ups       *channels.UPSInfo
-	last_seen *time.Time
+	last_seen time.Time
 }
 
 func PruneUPSCache(cache map[string]*DecayingUPSCacheEntry, expiry time.Duration) {
@@ -116,7 +120,7 @@ func (c *Controller) UPSVariableUpdateMultiplexer() {
 		// Get a UPSInfo from the channel
 		u := <-c.cb.Ups
 		// Prune our UPS cache first
-		PruneUPSCache(ups_info, 5*time.Minute)
+		PruneUPSCache(ups_info, c.ups_cache_lifetime)
 		// If this is a brand new UPS, we need to emit all of its variables.
 		_, present := ups_info[u.Name]
 		if !present {
@@ -133,7 +137,7 @@ func (c *Controller) UPSVariableUpdateMultiplexer() {
 			}
 		}
 		// Plop this into the cache ragardless.
-		ups_info[u.Name] = &DecayingUPSCacheEntry{ups: u, last_seen: &time.Time{}}
+		ups_info[u.Name] = &DecayingUPSCacheEntry{ups: u, last_seen: time.Now()}
 	}
 }
 

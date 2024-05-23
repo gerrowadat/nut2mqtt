@@ -24,6 +24,7 @@ func main() {
 
 	mqtt_topic_base := flag.String("mqtt-topic-base", "nut/", "base topic for MQTT messages")
 	upsd_poll_interval := flag.Int("upsd-poll-interval", 30, "interval between upsd polls")
+	upsd_cache_lifetime := flag.String("upsd-cache-lifetime", "60s", "lifetime of upsd cache entries")
 
 	control_topic := flag.String("control-topic", "bridge", "subtopic for control/alive messages")
 
@@ -44,7 +45,11 @@ func main() {
 	mqtt_client.SetTopicBase(*mqtt_topic_base)
 
 	// Create the controller
-	controller := control.NewController(*control_topic)
+	upsd_cache_lifetime_duration, err := time.ParseDuration(*upsd_cache_lifetime)
+	if err != nil {
+		log.Fatal("Could not parse --upsd-cache-lifetime: ", err)
+	}
+	controller := control.NewController(*control_topic, upsd_cache_lifetime_duration)
 
 	// Consume control messages, startup, shutdown, etc.
 	go controller.ControlMessageConsumer()
