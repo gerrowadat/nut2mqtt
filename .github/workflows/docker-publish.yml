@@ -3,6 +3,7 @@ name: Build and Push Docker Image
 on:
   release:
     types: [published]
+  workflow_dispatch:  # Enables manual
 
 env:
   REGISTRY: ghcr.io
